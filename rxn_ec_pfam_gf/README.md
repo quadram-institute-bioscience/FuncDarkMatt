@@ -249,7 +249,7 @@ python3 merge_rxn_uniref90.py \
 3. RXN_UNIREF90.txt (Main mapping file)
 4. RXN_NO_UNIREF90.txt  
 ```
-**Step4.3: Exact PFAM Mapping**
+**Step4.2: Exact PFAM Mapping**
 From the reactions that could not be assigned to any Gene Family (GF) in `Step 4.1`, take those that have only PFAM(s) and assign them to GFs based on exact PFAM matches.
 
 ```bash
