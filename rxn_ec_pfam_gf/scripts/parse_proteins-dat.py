@@ -1,174 +1,184 @@
 #!/usr/bin/env python3
 """
-BioCyc proteins.dat parser
-Extracts UNIQUE-ID, ENZYME_RXN, and PFAM information from proteins.dat file
+Parse proteins.dat file and extract UNIQUE-ID, CATALYZES, and DBLINKS information.
+Uses Click for command-line interface.
 """
 
 import click
 import csv
 import re
-from typing import List, Dict, Optional
-
-
-def parse_pfam_from_dblinks(dblinks_line: str) -> Optional[str]:
-    """
-    Extract PFAM ID from DBLINKS line
-    Example: DBLINKS - (PFAM "PF20423" IN-FAMILY |kothari| 3853938300 NIL NIL)
-    Returns: PF20423
-    """
-    pfam_match = re.search(r'PFAM\s+"([^"]+)"', dblinks_line)
-    if pfam_match:
-        return pfam_match.group(1)
-    return None
-
-
-def parse_catalyzes(catalyzes_line: str) -> Optional[str]:
-    """
-    Extract enzyme reaction ID from CATALYZES line
-    Example: CATALYZES - ENZRXN0-6300
-    Returns: ENZRXN0-6300
-    """
-    parts = catalyzes_line.split(' - ')
-    if len(parts) >= 2:
-        return parts[1].strip()
-    return None
-
-
-def parse_unique_id(unique_id_line: str) -> Optional[str]:
-    """
-    Extract unique ID from UNIQUE-ID line
-    Example: UNIQUE-ID - EG12016-MONOMER
-    Returns: EG12016-MONOMER
-    """
-    parts = unique_id_line.split(' - ')
-    if len(parts) >= 2:
-        return parts[1].strip()
-    return None
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 
 def parse_proteins_file(file_path: str) -> List[Dict[str, str]]:
     """
-    Parse the proteins.dat file and extract required information
+    Parse the proteins.dat file and extract relevant information.
+    
+    Args:
+        file_path: Path to the proteins.dat file
+        
+    Returns:
+        List of dictionaries containing parsed protein information
     """
     proteins = []
-    current_protein = {}
     
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
-        for line in file:
-            line = line.strip()
+    # Try different encodings to handle special characters
+    encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+    content = None
+    
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                content = f.read()
+            break
+        except (UnicodeDecodeError, LookupError):
+            continue
+    
+    if content is None:
+        raise click.ClickException(f"Could not decode file with encodings: {encodings}")
+
+    
+    # Split by '//' to separate individual protein entries
+    entries = content.split('//')
+    
+    for entry in entries:
+        if not entry.strip():
+            continue
             
-            # Skip empty lines
-            if not line:
-                continue
-                
-            # End of protein entry
-            if line == '//':
-                if current_protein:
-                    proteins.append(current_protein)
-                    current_protein = {}
-                continue
+        protein_info = {
+            'UNIQUE-ID': '',
+            'CATALYZES': '',
+            'PFAM': '',
+            'UNIPROT': ''
+        }
+        
+        lines = entry.strip().split('\n')
+        catalyzes_list = []
+        pfam_list = []
+        uniprot_list = []
+        
+        for line in lines:
+            line = line.rstrip()
             
-            # Parse UNIQUE-ID
+            # Extract UNIQUE-ID
             if line.startswith('UNIQUE-ID'):
-                unique_id = parse_unique_id(line)
-                if unique_id:
-                    current_protein['UNIQUE-ID'] = unique_id
-                    current_protein['ENZYME_RXN'] = []
-                    current_protein['PFAM'] = []
+                match = re.match(r'UNIQUE-ID\s*-\s*(.+)', line)
+                if match:
+                    protein_info['UNIQUE-ID'] = match.group(1).strip()
             
-            # Parse CATALYZES
+            # Extract CATALYZES
             elif line.startswith('CATALYZES'):
-                enzyme_rxn = parse_catalyzes(line)
-                if enzyme_rxn and 'ENZYME_RXN' in current_protein:
-                    current_protein['ENZYME_RXN'].append(enzyme_rxn)
+                match = re.match(r'CATALYZES\s*-\s*(.+)', line)
+                if match:
+                    catalyzes_list.append(match.group(1).strip())
             
-            # Parse DBLINKS for PFAM
-            elif line.startswith('DBLINKS') and 'PFAM' in line:
-                pfam_id = parse_pfam_from_dblinks(line)
-                if pfam_id and 'PFAM' in current_protein:
-                    current_protein['PFAM'].append(pfam_id)
-    
-    # Don't forget the last protein if file doesn't end with //
-    if current_protein:
-        proteins.append(current_protein)
+            # Extract DBLINKS
+            elif line.startswith('DBLINKS'):
+                # Parse DBLINKS format: (DATABASE "ID" ...)
+                # Looking for PFAM and UNIPROT entries
+                match = re.match(r'DBLINKS\s*-\s*\((\w+)\s+"([^"]+)"', line)
+                if match:
+                    db_type = match.group(1).upper()
+                    db_id = match.group(2).strip()
+                    
+                    if db_type == 'PFAM':
+                        pfam_list.append(db_id)
+                    elif db_type == 'UNIPROT':
+                        uniprot_list.append(db_id)
+        
+        # Join multiple values with semicolon
+        protein_info['CATALYZES'] = ';'.join(catalyzes_list) if catalyzes_list else ''
+        protein_info['PFAM'] = ';'.join(pfam_list) if pfam_list else ''
+        protein_info['UNIPROT'] = ';'.join(uniprot_list) if uniprot_list else ''
+        
+        # Only add entries that have a UNIQUE-ID
+        if protein_info['UNIQUE-ID']:
+            proteins.append(protein_info)
     
     return proteins
 
 
-def format_output_data(proteins: List[Dict[str, str]]) -> List[Dict[str, str]]:
+def write_to_csv(proteins: List[Dict[str, str]], output_file: str) -> None:
     """
-    Format the parsed data for output
+    Write parsed protein information to a CSV file.
+    
+    Args:
+        proteins: List of protein dictionaries
+        output_file: Path to the output CSV file
     """
-    formatted_data = []
+    fieldnames = ['UNIQUE-ID', 'CATALYZES', 'PFAM', 'UNIPROT']
     
-    for protein in proteins:
-        unique_id = protein.get('UNIQUE-ID', 'NA')
-        enzyme_rxns = protein.get('ENZYME_RXN', [])
-        pfams = protein.get('PFAM', [])
-        
-        for enzyme_rxn in enzyme_rxns:
-            formatted_data.append({
-                'UNIQUE-ID': unique_id,
-                'ENZYME_RXN': enzyme_rxn,
-                'PFAM': ';'.join(pfams) if pfams else 'NA'
-        })
+    with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(proteins)
     
-    return formatted_data
+    click.echo(f"✓ Successfully wrote {len(proteins)} proteins to {output_file}")
 
 
 @click.command()
-@click.option('--input-file', '-i', required=True, type=click.Path(exists=True), 
-              help='Path to the proteins.dat input file')
-@click.option('--output-file', '-o', required=True, type=click.Path(), 
-              help='Path to the output CSV file')
-@click.option('--verbose', '-v', is_flag=True, help='Enable verbose output')
-def main(input_file, output_file, verbose):
+@click.option(
+    '--input',
+    '-i',
+    type=click.Path(exists=True, file_okay=True, readable=True),
+    prompt='Enter path to proteins.dat file',
+    help='Path to the proteins.dat file'
+)
+@click.option(
+    '--output',
+    '-o',
+    type=click.Path(file_okay=True, writable=True),
+    prompt='Enter output CSV file path',
+    default='parsed_proteins.csv',
+    help='Path to the output CSV file'
+)
+@click.option(
+    '--verbose',
+    '-v',
+    is_flag=True,
+    help='Show detailed parsing information'
+)
+def main(input, output, verbose):
     """
-    Parse BioCyc proteins.dat file and extract UNIQUE-ID, ENZYME_RXN, and PFAM information.
+    Parse proteins.dat file and extract information into a CSV file.
     
-    Example usage:
-    python proteins_parser.py -i proteins.dat -o output.csv
+    This tool extracts:
+    - UNIQUE-ID
+    - CATALYZES (concatenated with semicolon if multiple)
+    - PFAM identifiers (concatenated with semicolon if multiple)
+    - UNIPROT identifiers (concatenated with semicolon if multiple)
     """
-    
-    if verbose:
-        click.echo(f"Reading proteins.dat file: {input_file}")
+    click.echo("━" * 50)
+    click.echo("Proteins.dat Parser")
+    click.echo("━" * 50)
     
     try:
-        # Parse the proteins file
-        proteins = parse_proteins_file(input_file)
+        click.echo(f"\n📖 Reading file: {input}")
+        proteins = parse_proteins_file(input)
         
         if verbose:
-            click.echo(f"Found {len(proteins)} protein entries")
+            click.echo(f"\n📊 Parsed {len(proteins)} protein entries:")
+            for i, protein in enumerate(proteins[:5], 1):
+                click.echo(f"\n  Entry {i}:")
+                click.echo(f"    UNIQUE-ID: {protein['UNIQUE-ID']}")
+                click.echo(f"    CATALYZES: {protein['CATALYZES']}")
+                click.echo(f"    PFAM: {protein['PFAM']}")
+                click.echo(f"    UNIPROT: {protein['UNIPROT']}")
+            if len(proteins) > 5:
+                click.echo(f"\n  ... and {len(proteins) - 5} more entries")
         
-        # Format the output data
-        formatted_data = format_output_data(proteins)
+        click.echo(f"\n💾 Writing results to: {output}")
+        write_to_csv(proteins, output)
         
-        if verbose:
-            click.echo(f"Generated {len(formatted_data)} output rows")
+        click.echo("\n✅ Parsing completed successfully!")
+        click.echo("━" * 50)
         
-        # Write to CSV file
-        with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['UNIQUE-ID', 'ENZYME_RXN', 'PFAM']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            writer.writeheader()
-            writer.writerows(formatted_data)
-        
-        click.echo(f"Successfully wrote output to: {output_file}")
-        
-        if verbose:
-            # Show some statistics
-            unique_proteins = len(set(row['UNIQUE-ID'] for row in formatted_data))
-            proteins_with_enzyme = len([row for row in formatted_data if row['ENZYME_RXN'] != 'NA'])
-            proteins_with_pfam = len([row for row in formatted_data if row['PFAM'] != 'NA'])
-            
-            click.echo(f"\nStatistics:")
-            click.echo(f"  Unique proteins: {unique_proteins}")
-            click.echo(f"  Rows with enzyme reactions: {proteins_with_enzyme}")
-            click.echo(f"  Rows with PFAM domains: {proteins_with_pfam}")
-    
+    except FileNotFoundError as e:
+        click.echo(f"\n❌ Error: File not found - {e}", err=True)
+        raise click.Abort()
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        click.echo(f"\n❌ Error during parsing: {e}", err=True)
         raise click.Abort()
 
 

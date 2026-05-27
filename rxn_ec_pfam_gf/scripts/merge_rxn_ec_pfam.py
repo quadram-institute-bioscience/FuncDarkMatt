@@ -3,21 +3,23 @@ import pandas as pd
 import numpy as np
 
 @click.command()
-@click.option('--file1', required=True, help='Path to reaction-links.dat (TSV with no header)')
-@click.option('--file2', required=True, help='Path to rxn_pfam.tsv (TSV with header)')
-@click.option('--output', required=True, help='Path to output CSV file')
+@click.option('--file1', required=True, help='Path to merge_reactions.tsv (TSV with header: UNIQUE-ID, EC-NUMBER, ENZYMATIC-REACTION)')
+@click.option('--file2', required=True, help='Path to enzrxn_rxn_pfam_gf.csv (CSV with header)')
+@click.option('--output', required=True, help='Path to output TSV file')
 def merge_reaction_files(file1, file2, output):
     """
     Merge reaction files based on RXN/REACTION columns.
     
-    File1 (reactions_links.dat): TSV with variable columns
-    - First column: RXN ID
-    - Remaining columns: EC numbers (can be 0, 1, or multiple)
+    File1 (merge_reactions.tsv): TSV with header and 3 fixed columns
+    - UNIQUE-ID: RXN ID
+    - EC-NUMBER: pipe-separated EC numbers (can be empty)
+    - ENZYMATIC-REACTION: pipe-separated ENZRXN IDs (not used; ENZRXN/PFAM data comes from file2)
     
-    File2 (rxn_pfam.tsv): TSV with fixed 3 columns (header included)
+    File2 (enzrxn_rxn_pfam_gf.csv): CSV with fixed 4 columns (header included)
     - ENZYME_RXN (discarded)
     - REACTION 
     - PFAM
+    - uniref90_ids
     
     Keep ALL reactions from both files, including:
     - Reactions that have PFAM only
@@ -30,55 +32,59 @@ def merge_reaction_files(file1, file2, output):
         # Read File1 (reactions_links.dat) - no header, tab-separated, variable columns
         click.echo(f"Reading File1: {file1}")
         
-        # Read the file line by line to handle variable number of columns
+        # Read the file line by line; new format has a header and 3 fixed tab-separated columns:
+        #   UNIQUE-ID   EC-NUMBER (pipe-separated)   ENZYMATIC-REACTION (pipe-separated, ignored)
         with open(file1, 'r') as f:
             lines = f.readlines()
-        
+
         # Process each line to extract RXN and EC numbers
         file1_data = []
-        
+
         for line in lines:
             line = line.strip()
-            # Skip line starting with '#' or empty lines
-            if line and not line.startswith('#'):
-                rxn_id, *ec = line.split('\t')
-                # if *ec is empty then replace with NA
-                if not ec:
-                    ec = ['NA']
-                else:
-                    # each EC should have have 3 decimal places like this one EC-2.7.1.221
-                    # If there are EC with less than 3 decimal places, pad them with _ for each decimal missing for example EC-2.7.1 becomes EC-2.7.1._
-                    # If EC has 2 decimal places, it will be EC-2.3._._
-                    # If EC has 1 decimal place, it will be EC-2._._._
-                    # If EC has no decimal places, it will be EC-2._._._
-                    # Remove EC- prefix if present
-                    ec = [e.strip() for e in ec if e.strip()]  # Remove whitespace
-                    ec = [e.replace('EC-', '') for e in ec]
-                    ec = [e if e.count('.') == 3 else e + '._' * (3 - e.count('.')) for e in ec]
-                    ec = [';'.join(ec)]
-                
-                file1_data.append([rxn_id] + ec)
+            # Skip empty lines, comment lines, and the header line
+            if not line or line.startswith('#') or line.startswith('UNIQUE-ID'):
+                continue
+
+            parts = line.split('\t')
+            rxn_id = parts[0]
+            ec_field = parts[1].strip() if len(parts) > 1 else ''
+            # ENZYMATIC-REACTION (parts[2]) is not used here; ENZRXN data comes from file2
+
+            if not ec_field:
+                ec = ['NA']
+            else:
+                # EC numbers are pipe-separated in the new format
+                ec = [e.strip() for e in ec_field.split('|') if e.strip()]
+                # each EC should have 3 decimal places like EC-2.7.1.221
+                # If there are EC with less than 3 decimal places, pad with '._' for each missing decimal
+                # Remove EC- prefix before normalising
+                ec = [e.replace('EC-', '') for e in ec]
+                ec = [e if e.count('.') == 3 else e + '._' * (3 - e.count('.')) for e in ec]
+                ec = [';'.join(ec)]
+
+            file1_data.append([rxn_id] + ec)
         
         # Create DataFrame with two columns: RXN and EC numbers
         df1_cols = ['RXN'] + ['EC_NUMBERS']
         df1 = pd.DataFrame(file1_data, columns=df1_cols)
         
         click.echo(f"File1 processed: {len(df1)} reactions found")
-        rxn_with_ec = len(df1[df1['EC_NUMBERS'] != ''])
+        rxn_with_ec = len(df1[~df1['EC_NUMBERS'].isin(['', 'NA'])])
         rxn_without_ec = len(df1[df1['EC_NUMBERS'] == 'NA'])
         click.echo(f"  - Reactions with EC numbers: {rxn_with_ec}")
         click.echo(f"  - Reactions without EC numbers: {rxn_without_ec}")
         
         # Read File2 (rxn_pfam.tsv) - has header, tab-separated
         click.echo(f"Reading File2: {file2}")
-        df2 = pd.read_csv(file2, sep='\t')
+        df2 = pd.read_csv(file2, sep=',')
         
         # Check if required columns exist in File2
-        if not all(col in df2.columns for col in ['ENZYME_RXN', 'REACTION', 'PFAM']):
-            raise ValueError("File2 must contain columns: ENZYME_RXN, REACTION, PFAM")
+        if not all(col in df2.columns for col in ["ENZRXN","REACTION","PFAM","uniref90_ids"]):
+            raise ValueError("File2 must contain columns: ENZRXN, REACTION, PFAM, uniref90_ids")
         
-        # Keep only REACTION and PFAM columns (discard ENZYME_RXN)
-        df2 = df2[['REACTION', 'PFAM']]
+        # Keep ENZRXN for PFAM sub-grouping later
+        df2 = df2[['ENZRXN', 'REACTION', 'PFAM', "uniref90_ids"]]
         
         # Display basic info about input files
         click.echo(f"File1 shape: {df1.shape}")
@@ -97,8 +103,8 @@ def merge_reaction_files(file1, file2, output):
         result['PFAM'] = result['PFAM'].fillna('NA')
         
         # Create final output with desired columns
-        final_result = result[['FINAL_RXN', 'EC_NUMBERS', 'PFAM']].copy()
-        final_result.columns = ['RXN', 'EC_NUMBERS', 'PFAM']
+        final_result = result[['FINAL_RXN', 'EC_NUMBERS', 'PFAM', 'uniref90_ids', 'ENZRXN']].copy()
+        final_result.columns = ['RXN', 'EC_NUMBERS', 'PFAM', 'uniref90_ids', 'ENZRXN']
         
         # IMPORTANT: Keep ALL reactions, including those with neither PFAM nor EC
         # No filtering based on presence of PFAM or EC numbers
@@ -109,20 +115,48 @@ def merge_reaction_files(file1, file2, output):
         # Sort by RXN for better readability
         final_result = final_result.sort_values('RXN')
 
-        # Group by RXN and aggregate EC_NUMBERS and PFAM, combining EC_NUMBERS and PFAM into lists
-        # This ensures we keep all unique EC numbers and PFAM IDs for each RXN
-        final_result = final_result.groupby('RXN').agg({
-            'EC_NUMBERS': lambda x: ';'.join(x) if x.any() else 'NA',
-            'PFAM': lambda x: ';'.join(x) if x.any() else 'NA'
+        # Fill ENZRXN NaN (EC-only reactions with no ENZRXN match) with empty string
+        final_result['ENZRXN'] = final_result['ENZRXN'].fillna('')
+
+        def join_semicolon(x):
+            """Join non-null, non-empty values with ';', deduplicating while preserving order."""
+            vals = [str(v) for v in x if pd.notna(v) and str(v) not in ('', 'NA', 'nan')]
+            return ';'.join(dict.fromkeys(vals)) if vals else 'NA'
+
+        def join_semicolon_dedup(x):
+            """Join non-null, non-empty values with ';', deduplicating (used within an ENZRXN group)."""
+            vals = [str(v) for v in x if pd.notna(v) and str(v) not in ('', 'NA', 'nan')]
+            return ';'.join(sorted(set(vals))) if vals else 'NA'
+
+        def join_comma_ordered(x):
+            """Join non-null, non-empty values with '|', deduplicating while preserving order (used across ENZRXNs)."""
+            vals = [str(v) for v in x if pd.notna(v) and str(v) not in ('', 'NA', 'nan')]
+            return '|'.join(dict.fromkeys(vals)) if vals else 'NA'
+
+        # Step 1: within each (RXN, ENZRXN) group, combine PFAMs with ';' and deduplicate
+        enzrxn_agg = final_result.groupby(['RXN', 'ENZRXN']).agg({
+            'EC_NUMBERS': join_semicolon,
+            'PFAM': join_semicolon_dedup,
+            'uniref90_ids': join_semicolon,
         }).reset_index()
 
-        # Now remove duplicates within EC_NUMBERS and PFAM columns for each RXN
-        final_result['EC_NUMBERS'] = final_result['EC_NUMBERS'].apply(lambda x  : ';'.join(sorted(set(x.split(';')))) if x else 'NA')
-        final_result['PFAM'] = final_result['PFAM'].apply(lambda x: ';'.join(sorted(set(x.split(';')))) if x else 'NA')
+        # Step 2: group by RXN, joining ENZRXN-level PFAM groups with ','
+        # e.g. ENZRXN-1→PF1, ENZRXN-2→PF1;PF2  becomes  PF1,PF1;PF2
+        final_result = enzrxn_agg.groupby('RXN').agg({
+            'EC_NUMBERS': join_semicolon,
+            'PFAM': join_comma_ordered,
+            'uniref90_ids': join_semicolon,
+        }).reset_index()
 
-        # Replace NA in EC_NUMBERS and PFAM with nothing if they are not empty
+        # Deduplicate EC_NUMBERS and uniref90_ids (flat semicolon-separated lists)
+        final_result['EC_NUMBERS'] = final_result['EC_NUMBERS'].apply(
+            lambda x: ';'.join(sorted(set(x.split(';')))) if x and x != 'NA' else x)
+        final_result['uniref90_ids'] = final_result['uniref90_ids'].apply(
+            lambda x: ';'.join(sorted(set(x.split(';')))) if x and x != 'NA' else x)
+
+        # Clean up any residual 'NA;' artifacts in flat-joined columns
         final_result['EC_NUMBERS'] = final_result['EC_NUMBERS'].str.replace('NA;', '', regex=False)
-        final_result['PFAM'] = final_result['PFAM'].str.replace('NA;', '', regex=False)
+        final_result['uniref90_ids'] = final_result['uniref90_ids'].str.replace('NA;', '', regex=False)
 
         # Remove any completely duplicate rows
         final_result = final_result.drop_duplicates()
@@ -140,10 +174,13 @@ def merge_reaction_files(file1, file2, output):
         click.echo(f"Total rows in output: {len(final_result)}")
         
         # Count different types of entries
-        has_ec = len(final_result[final_result['EC_NUMBERS'] != ''])
-        has_pfam = len(final_result[final_result['PFAM'] != 'NA'])
-        has_both = len(final_result[(final_result['EC_NUMBERS'] != '') & (final_result['PFAM'] != 'NA')])
-        has_neither = len(final_result[(final_result['EC_NUMBERS'] == '') & (final_result['PFAM'] == 'NA')])
+        # Both '' and 'NA' mean absent for EC_NUMBERS and PFAM
+        no_ec = final_result['EC_NUMBERS'].isin(['', 'NA'])
+        no_pfam = final_result['PFAM'].isin(['', 'NA'])
+        has_ec = len(final_result[~no_ec])
+        has_pfam = len(final_result[~no_pfam])
+        has_both = len(final_result[~no_ec & ~no_pfam])
+        has_neither = len(final_result[no_ec & no_pfam])
         
         click.echo(f"\nSummary:")
         click.echo(f"Entries with EC numbers: {has_ec}")
