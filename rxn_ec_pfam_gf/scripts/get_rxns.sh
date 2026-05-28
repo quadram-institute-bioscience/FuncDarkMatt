@@ -53,7 +53,7 @@
 #
 ################################################################################
 
-set -e
+set -e 
 INPUT_DIR=$1
 OUTPUT=$2
 UNIREF_DIR="uniref2019_01" # with uniref90_members.csv and uniref90_members (SQLite index)
