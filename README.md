@@ -20,11 +20,11 @@ The pipeline runs in five steps:
 
 | Step | Description |
 |------|-------------|
-| 1 | **UniProtKB Processing** — parse Swiss-Prot and TrEMBL flat files into a combined protein accession table (ID, accession, NCBI taxonomy, Pfam domains, EC numbers) |
-| 2 | **UniRef90 Processing** — build a SQLite annotation database and member-lookup database for UniRef90 clusters |
-| 3 | **BioCyc Processing** — extract per-species reaction, enzyme, EC, and Pfam data into `*_RXNS.txt` files |
-| 4 | **Mapping RXNs to Gene Families** — apply a three-strategy hierarchical mapping (EC → Pfam → UP-AC) per species via SLURM array job |
-| 5 | **Aggregating Multi-Species Mappings** — merge and deduplicate per-species results into three final output files |
+| [1](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-1-UniProtKB-Processing) | **UniProtKB Processing** — parse Swiss-Prot and TrEMBL flat files into a combined protein accession table (ID, accession, NCBI taxonomy, Pfam domains, EC numbers) |
+| [2](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-2-UniRef90-Processing) | **UniRef90 Processing** — build a SQLite annotation database and member-lookup database for UniRef90 clusters |
+| [3](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-3-BioCyc-Processing) | **BioCyc Processing** — extract per-species reaction, enzyme, EC, and Pfam data into `*_RXNS.txt` files |
+| [4](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-4-Mapping-RXNs-to-Gene-Families) | **Mapping RXNs to Gene Families** — apply a three-strategy hierarchical mapping (EC → Pfam → UP-AC) per species via SLURM array job |
+| [5](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-5-Aggregating-Multi-Species-Mappings) | **Aggregating Multi-Species Mappings** — merge and deduplicate per-species results into three final output files |
 
 ### Mapping Strategy (Step 4)
 
