@@ -23,7 +23,7 @@ The pipeline runs in five steps:
 | [1](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-1-UniProtKB-Processing) | **UniProtKB Processing** — parse Swiss-Prot and TrEMBL flat files into a combined protein accession table (ID, accession, NCBI taxonomy, Pfam domains, EC numbers) |
 | [2](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-2-UniRef90-Processing) | **UniRef90 Processing** — build a SQLite annotation database and member-lookup database for UniRef90 clusters |
 | [3](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-3-BioCyc-Processing) | **BioCyc Processing** — extract per-species reaction, enzyme, EC, and Pfam data into `*_RXNS.txt` files |
-| [4](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-4-Mapping-RXNs-to-Gene-Families) | **Mapping RXNs to Gene Families** — apply a three-strategy hierarchical mapping (EC → Pfam → UP-AC) per species via SLURM array job |
+| [4](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-4-Mapping-RXNs-to-Gene-Families) | **Mapping RXNs to Gene Families** — apply a three-strategy hierarchical mapping (EC → Pfam → UniProtKB accession) per species via SLURM array job |
 | [5](https://github.com/quadram-institute-bioscience/FuncDarkMatt/wiki/Step-5-Aggregating-Multi-Species-Mappings) | **Aggregating Multi-Species Mappings** — merge and deduplicate per-species results into three final output files |
 
 ### Mapping Strategy (Step 4)
@@ -31,16 +31,16 @@ The pipeline runs in five steps:
 Strategies are applied from most to least specific; reactions unmapped by one strategy are passed to the next.
 
 ```
-All RXNs with UniProt Accession (UP-AC)  → GF pool assigned
+All RXNs with UniProt Accession (UniProtKB accession)  → GF pool assigned
          ↓
-EC mapping  → hit: GF assigned (EC + UP-AC pooled)     → File 1
+EC mapping  → hit: GF assigned (EC + UniProtKB accession pooled)     → File 1
              no hit: residual
          ↓
 Pfam mapping (exact set match)
-            → hit: GF assigned (Pfam + UP-AC pooled)   → File 2 additions
+            → hit: GF assigned (Pfam + UniProtKB accession pooled)   → File 2 additions
              no hit: final residual
          ↓
-UP-AC only  → GF assigned if UP-AC exists              → File 3 additions
+UniProtKB accession only  → GF assigned if UniProtKB accession exists              → File 3 additions
 ```
 
 ## Repository Structure
@@ -81,7 +81,7 @@ UP-AC only  → GF assigned if UP-AC exists              → File 3 additions
         ├── map_RXNS2GF.sh               ## Step 4 — SLURM array job driver
         ├── query_uniref90sql_db.py      ## Step 4 — query annotation DB for EC/Pfam lookup
         ├── rxn_bicoyc_merge.py          ## Step 5 — merge per-species EC mappings
-        └── aggregate_rxns               ## Step 5 — three-phase SLURM pipeline for Pfam/UP-AC
+        └── aggregate_rxns               ## Step 5 — three-phase SLURM pipeline for Pfam/UniProtKB accession
             ├── submit_all.sh
             ├── phase1_partition.py      ## Distribute input files into buckets
             ├── phase1_submit.sh
