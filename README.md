@@ -101,7 +101,7 @@ UniProtKB accession only  → GF assigned if UniProtKB accession exists         
 
 ## Citation
 If you use this framework, please cite: 
-* Identifying Fundamental Gaps in Functional Metagenomics: A Step Towards Unlocking Microbiome Research Potential [https://doi.org/10.64898/2026.01.10.698778]
+* Sumeet K Tiwari, Andrea Telatin, Dipali Singh, Identifying fundamental gaps in functional metagenomics: a step towards unlocking microbiome research potential, NAR Genomics and Bioinformatics, Volume 8, Issue 3, September 2026, lqag110, [https://doi.org/10.1093/nargab/lqag110]
 
 ## License
 This work is licensed under a CC-BY 4.0 International License.
